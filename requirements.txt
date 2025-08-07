@@ -1,0 +1,3 @@
+pytelegrambotapi
+pytubefix
+instaloader
