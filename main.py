@@ -1,20 +1,25 @@
 import os
-import time
 import telebot
 from pytubefix import YouTube
 import instaloader
 import shutil
+from flask import Flask, request
 
-TOKEN = "7626812897:AAHSgw_7DO9JJpxYvlWQW8UHyKx0BH1np_U"
+TOKEN = os.environ.get("BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  
 bot = telebot.TeleBot(TOKEN)
 
+app = Flask(__name__)
 TEMP_DIR = "temp_download"
+
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+# ========== Telegram Handlers ==========
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.send_message(message.chat.id, "Киньте ссылку на Ютуб или Инстаграм видео")
+    bot.send_message(message.chat.id, "Киньте ссылку на YouTube или Instagram видео")
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -22,7 +27,7 @@ def handle_message(message):
     text = message.text.strip()
 
     if not text.startswith("http"):
-        bot.send_message(chat_id, "Пожалуйста, киньте правильную ссылку")
+        bot.send_message(chat_id, "Пожалуйста, киньте правильную ссылку.")
         return
 
     bot.send_message(chat_id, "Загружается...")
@@ -37,9 +42,11 @@ def handle_message(message):
 
         elif "instagram.com" in text:
             loader = instaloader.Instaloader(dirname_pattern=TEMP_DIR, save_metadata=False, download_comments=False)
-            shortcode = text.split("/")[-2]
+            parts = [p for p in text.split("/") if p]
+            shortcode = parts[-1]
             post = instaloader.Post.from_shortcode(loader.context, shortcode)
             loader.download_post(post, target="insta_temp")
+
             folder_path = os.path.join(TEMP_DIR, "insta_temp")
             files = [f for f in os.listdir(folder_path) if f.endswith((".mp4", ".jpg"))]
             if files:
@@ -47,24 +54,45 @@ def handle_message(message):
             else:
                 bot.send_message(chat_id, "Не нашлось никакое видео.")
                 return
+
         else:
-            bot.send_message(chat_id, "Может принимать только YouTube или Instagram ссылку.")
+            bot.send_message(chat_id, "Принимаются только ссылки на YouTube и Instagram.")
             return
 
-        with open(file_path, 'rb') as f:
-            if file_path.endswith(".mp4"):
-                bot.send_video(chat_id, f)
-            elif file_path.endswith(".jpg"):
-                bot.send_photo(chat_id, f)
+        # Отправка файла 
+        if file_path and os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                if file_path.endswith(".mp4"):
+                    bot.send_video(chat_id, f)
+                elif file_path.endswith(".jpg"):
+                    bot.send_photo(chat_id, f)
 
-        # Удаляем файл и временную папку
-        if os.path.exists(file_path):
+        # Очистка
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
-        if "insta_temp" in file_path:
+        if file_path and "insta_temp" in file_path:
             shutil.rmtree(os.path.join(TEMP_DIR, "insta_temp"), ignore_errors=True)
 
     except Exception as e:
         bot.send_message(chat_id, f"Произошла ошибка:\n{e}")
 
-print("Бот запущен!")
-bot.infinity_polling()
+# ========== Webhook Routes ==========
+
+@app.route('/', methods=['GET'])
+def index():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    return "Webhook установлен!", 200
+
+@app.route('/', methods=['POST'])
+def webhook():
+    update = telebot.types.Update.de_json(request.data.decode("utf-8"))
+    bot.process_new_updates([update])
+    return "OK", 200
+
+# ========== Start App ==========
+
+if __name__ == "__main__":
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
