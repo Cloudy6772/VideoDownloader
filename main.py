@@ -5,6 +5,7 @@ import instaloader
 import shutil
 from flask import Flask, request
 
+TOKEN = os.environ.get("BOT_TOKEN")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  
 bot = telebot.TeleBot(TOKEN)
 
